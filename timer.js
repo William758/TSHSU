@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        Ta2Pro Sup3r Hax0r Scr1pt Ultr4
-// @version     0.666q
+// @version     0.666r
 // @include     http://tagpro-*.koalabeast.com:*
 // @include     http://*.jukejuice.com:*
 // @include     http://*.newcompte.fr:*
@@ -24,11 +24,16 @@ var Config = {
 	// 2 - none
 	warningType : 1,
 	
+	
+	
 	// - show timeAt for timers less than 20 sec
 	alwaysAt : false,
 	
 	// - small text position changes at halfway-point instead of near bottom
 	centerBoundText : false,
+	
+	// - hide player powerup count when spectating
+	hideCountSpectate : true,
 	
 	
 	
@@ -49,7 +54,7 @@ var Config = {
 	// - enable alternate fill colors
 	customColors : false,
 	
-	// - override timer fill colors - use hexadecimal number format
+	// - override timer fill colors - use hexadecimal format
 	overrideColor : {
 		// - example
 		example : 0xffffff,
@@ -62,11 +67,12 @@ var Config = {
 		boost : false,
 		boostred : false,
 		boostblue : false,
-		
 		powerup : false,
 		bomb : false,
-		
 		portal : false,
+		
+		// - warning border
+		warnborder : false,
 	},
 	
 	
@@ -1373,11 +1379,12 @@ var Database = {
 		boost : 0xffff00,
 		boostred : 0xff0000,
 		boostblue : 0x0000ff,
-		
 		powerup : 0x00ff00,
 		bomb : 0x3f3f3f,
-		
 		portal : 0x7f00ff,
+		
+		// - warning border
+		warnborder : 0x333333,
 	},
 	
 	
@@ -1817,7 +1824,7 @@ var Renderer = {
 			if( state == 'fill' ){
 				circle.clear().beginFill( POI.fillColor ).drawCircle( 0 , 0 , radius ).endFill();
 			}else{
-				circle.clear().lineStyle( 2 , 0x333333 ).drawCircle( 0 , 0 , radius - 1 );
+				circle.clear().lineStyle( 2 , Database.colorTable.warnborder ).drawCircle( 0 , 0 , radius - 1 );
 			}
 		});
 	},
@@ -2040,6 +2047,9 @@ var Renderer = {
 		db = Database.player[ player.id ];
 		
 		text = '' + db.pups;
+		
+		// hide on spectate
+		if( Config.hideCountSpectate && tagpro.spectator ) text = '';
 		
 		Helper.setValue( player.sprites.activePups.counter , 'V_text' , text , function(){
 			if( Database.legacyRender ){
