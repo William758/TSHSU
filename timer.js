@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        Ta2Pro Sup3r Hax0r Scr1pt Ultr4
-// @version     0.666r
+// @version     0.666s
 // @include     http://tagpro-*.koalabeast.com:*
 // @include     http://*.jukejuice.com:*
 // @include     http://*.newcompte.fr:*
@@ -135,7 +135,7 @@ var Helper = {
 	tileOnScreen : function(x, y, f){
 		var player = Database.position, delta = 20 / tagpro.zoom;
 		
-		if( tagpro.spectator ) return true;
+		if( tagpro.spectator && !tagpro.viewport.followPlayer ) return true;
 		
 		if( f === true && Config.showFloaters ) delta *= -1;
 		
@@ -152,9 +152,9 @@ var Helper = {
 	},
 	// if tile is near bottom
 	tileNearBottom : function(y){
-		if( tagpro.spectator ) return false;
+		if( tagpro.spectator && !tagpro.viewport.followPlayer ) return false;
 		
-		return ( Database.position.y - y ) < ( Config.centerBoundText ? 0 : ( -8 / tagpro.zoom ) );
+		return ( Database.position.y - y ) < ( Config.centerBoundText ? 0 : ( ( -tagpro.renderer.canvas.height / 2 ) / ( 40 / tagpro.zoom ) ) + 1 );
 	},
 	// player can see tile(in update range)
 	tileLiveForPlayer : function(x, y){
