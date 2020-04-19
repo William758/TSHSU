@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name        Ta2Pro Sup3r Hax0r Scr1pt Ultr4
-// @version     0.666s
+// @version     0.7b
 // @include     http://tagpro-*.koalabeast.com:*
 // @include     http://*.jukejuice.com:*
 // @include     http://*.newcompte.fr:*
+// @match       *://*.koalabeast.com/game
 // @author      Despair
 // ==/UserScript==
 
@@ -18,11 +19,16 @@ var Config = {
 	// 6 - timeat largetext , timeleft largetext when 10 sec left
 	tileDisplay : 0,
 	
-	// - warning type - possible values :
-	// 0 - fill
+	// - display type - possible values :
+	// 0 - none
 	// 1 - border
-	// 2 - none
+	// 2 - fill
+	// 3 - border + fill
+	defaultType : 2,
 	warningType : 1,
+	
+	// - always display as warning when 3 sec left
+	forceWarningDisplay : false,
 	
 	
 	
@@ -51,12 +57,13 @@ var Config = {
 	
 	
 	
-	// - enable alternate fill colors
+	// - enable alternate colors
 	customColors : false,
 	
-	// - override timer fill colors - use hexadecimal format
+	// - override timer colors , use hexadecimal number format
+	//   false to use default color , -1 to disable fill color
 	overrideColor : {
-		// - example
+		// - example [ USE THIS FORMAT ]
 		example : 0xffffff,
 		
 		// - player spawn
@@ -67,9 +74,11 @@ var Config = {
 		boost : false,
 		boostred : false,
 		boostblue : false,
+		portal : false,
+		portalred : false,
+		portalblue : false,
 		powerup : false,
 		bomb : false,
-		portal : false,
 		
 		// - warning border
 		warnborder : false,
@@ -77,8 +86,21 @@ var Config = {
 	
 	
 	
+	// - add full reference to script in tagpro object : tagpro.tilmer
+	debugObject : false,
+	
+	
+	
 	// - disable global, floaters, player timers and player pup count if map powerup count is above this value
 	maxPupDetailedTracking : 8,
+};
+
+
+
+var MapData = {
+	'Carrera' : [
+		[ 15 , 24 , 5000 ] , [ 39 , 24 , 5000 ]
+	],
 };
 
 var Helper = {
@@ -100,7 +122,7 @@ var Helper = {
 		}
 		
 		switch(value){
-			case 5: case 10: case 13: case 14: case 15:{
+			case 5: case 10: case 13: case 14: case 15: case 24: case 25:{
 				return true;
 			}
 			default:{
@@ -109,12 +131,14 @@ var Helper = {
 		}
 	},
 	isStandardMapUpdate : function(value){
-		var valid = [500,510,600,610,620,630,640,1000,1010,1300,1310,1400,1410,1500,1510];
+		var valid = [
+			500,510,600,610,620,630,640,1000,1010,1300,1310,1400,1410,1500,1510,2400,2410,2500,2510
+		];
 		
 		return valid.indexOf( Math.round( value * 100 ) ) != -1;
 	},
 	isWarningMapUpdate : function(value){
-		var warn = [511,611,621,631,641,1011,1311,1411,1511];
+		var warn = [511,611,621,631,641,1011,1311,1411,1511,2411,2511];
 		
 		return warn.indexOf( Math.round( value * 100 ) ) != -1;
 	},
@@ -129,7 +153,12 @@ var Helper = {
 		return '' + ms > 9999 ? Math.floor( ms / 1000 ) : ( Math.floor( ms / 100 ) / 10 ).toFixed(1) ;
 	},
 	getTimeAtText : function(n){
-		return ( n > 9 ? '' : '0' ) + n;
+		if( n < 0 ){
+			n = Math.abs( n );
+			return ':' + ( n > 9 ? '' : '0' ) + n + ':';
+		}else{
+			return ( n > 9 ? '' : '0' ) + n;
+		}
 	},
 	// camera can see tile
 	tileOnScreen : function(x, y, f){
@@ -137,30 +166,44 @@ var Helper = {
 		
 		if( tagpro.spectator && !tagpro.viewport.followPlayer ) return true;
 		
+		if( !Database.validPlayer ) return true;
+		
 		if( f === true && Config.showFloaters ) delta *= -1;
 		
 		return (
-			Math.abs( ( player.x - x ) * ( 40 / tagpro.zoom ) ) < ( tagpro.renderer.canvas.width / 2 ) + delta &&
-			Math.abs( ( player.y - y ) * ( 40 / tagpro.zoom ) ) < ( tagpro.renderer.canvas.height / 2 ) + delta
+			Math.abs( ( player.x - x ) * ( 40 / tagpro.zoom ) ) <
+			( tagpro.renderer.canvas.width / 2 ) + delta &&
+			Math.abs( ( player.y - y ) * ( 40 / tagpro.zoom ) ) <
+			( tagpro.renderer.canvas.height / 2 ) + delta
 		);
 	},
 	// check if map update was live
 	wasLiveUpdate : function(x, y, p){
-		if( tagpro.spectator ) return true;
+		if( tagpro.spectator || p.s ) return true;
 		
 		return  Math.abs( p.x - x ) < 16.25 && Math.abs( p.y - y ) < 10.25;
 	},
 	// if tile is near bottom
 	tileNearBottom : function(y){
+		var player = Database.position;
+		
 		if( tagpro.spectator && !tagpro.viewport.followPlayer ) return false;
 		
-		return ( Database.position.y - y ) < ( Config.centerBoundText ? 0 : ( ( -tagpro.renderer.canvas.height / 2 ) / ( 40 / tagpro.zoom ) ) + 1 );
+		if( !Database.validPlayer ) return false;
+		
+		if( !Config.centerBoundText ){
+			return player.y - y < ( ( -tagpro.renderer.canvas.height / 2 ) / ( 40 / tagpro.zoom ) );
+		}else{
+			return player.y - y < 0;
+		}
 	},
 	// player can see tile(in update range)
 	tileLiveForPlayer : function(x, y){
 		var player = Database.position;
 		
 		if( tagpro.spectator ) return true;
+		
+		if( !Database.validPlayer ) return false;
 		
 		return  Math.abs( player.x - x ) < 16.25 && Math.abs( player.y - y ) < 10.25;
 	},
@@ -175,11 +218,7 @@ var Helper = {
 };
 
 var Logic = {
-	readMapData : function(map){
-		Logic.parseMapData( map );
-		Database.state = 1;
-	},
-	parseMapData : function(data){
+	parseMapData : function( data , name ){
 		var i, j;
 		
 		// set custom colors
@@ -193,6 +232,9 @@ var Logic = {
 			}
 		}
 		
+		// apply mapdata
+		if( MapData[ name ] ) Logic.handleMapData( name );
+		
 		// disable details on trigger
 		if( Database.pupCount > Config.maxPupDetailedTracking ){
 			Config.showGlobal = false;
@@ -200,7 +242,10 @@ var Logic = {
 			Config.showPlayerTimers = false;
 			Config.showPlayerPupCount = false;
 		}
+		
+		Database.state = 1;
 	},
+	
 	handleCustomColors : function(){
 		var CO = Config.overrideColor, DC = Database.colorTable, prop;
 		
@@ -209,25 +254,47 @@ var Logic = {
 		}
 	},
 	parseTileData : function(x, y, data){
-		var prop;
+		var prop, TT, CT;
 		
 		//console.log( 'Logic.parseTileData : {x: '+x+', y: '+y+', value: '+data+'}' );
 		
+		TT = Database.timeTable;
+		CT = Database.colorTable;
+		
 		switch( Math.floor(data) ){
-			case 5 : prop = ['boost', 10000, Database.colorTable.boost]; break;
-			case 6 : prop = ['powerup', 60000, Database.colorTable.powerup]; break;
-			case 10: prop = ['bomb', 30000, Database.colorTable.bomb]; break;
-			case 13: prop = ['portal', false, Database.colorTable.portal]; break;
-			case 14: prop = ['boostred', 10000, Database.colorTable.boostred]; break;
-			case 15: prop = ['boostblue', 10000, Database.colorTable.boostblue]; break;
+			case 5: prop = ['boost', TT.boost, CT.boost]; break;
+			case 6: prop = ['powerup', TT.pup, CT.powerup]; break;
+			case 10: prop = ['bomb', TT.bomb, CT.bomb]; break;
+			case 13: prop = ['portal', false, CT.portal]; break;
+			case 14: prop = ['boostred', TT.boost, CT.boostred]; break;
+			case 15: prop = ['boostblue', TT.boost, CT.boostblue]; break;
+			case 24: prop = ['portalred', false, CT.portalred]; break;
+			case 25: prop = ['portalblue', false, CT.portalblue]; break;
 			
 			default: return;
 		}
 		
-		Logic.createPOI(x, y, prop, data);
+		Database.createPOIEntry( x , y , prop , data );
 	},
-	createPOI : function(x, y, prop, data){
-		var POI = Database.createPOIEntry( x , y , prop , data );
+	handleMapData : function(name){
+		var data, tile, i, count, x, y;
+		
+		if( !MapData[ name ] ) return;
+		
+		data = MapData[ name ];
+		
+		i = 0; count = data.length;
+		
+		for(i = 0; i < count; i++){
+			x = data[i][0];
+			y = data[i][1];
+			
+			if( Database.locate[x] && Database.locate[x][y] ){
+				tile = Database.locate[x][y];
+				
+				if( !tile.timeMax ) tile.timeMax = data[i][2];
+			}
+		}
 	},
 	
 	
@@ -242,11 +309,14 @@ var Logic = {
 		// handle state
 		if( !Logic.handleState() ) return;
 		
+		// get end time
+		Logic.getEndTime();
+		
 		// create renderer layers
 		Logic.handleRendererLayers();
 		
 		// update player camera position
-		// - not used during map update socket events as they already contain player position
+		// - map update socket already has player position data
 		Logic.updatePlayerPosition();
 		
 		// process socket queue
@@ -269,8 +339,10 @@ var Logic = {
 	
 	handleState : function(){
 		switch( Database.state ){
+			case -1 : {// error
+				return false;
+			}
 			case 0 : {// init
-				
 				return false;
 			}
 			case 1 : {// map
@@ -294,14 +366,12 @@ var Logic = {
 				
 				return true;
 			}
-			case 5 : {// post game
-				
-				
-				return false;
+			case 5 : {// end game
+				return true;
 			}
 			default: {// invalid
-				console.log( 'TSHSU - invalid state ('+Database.state+')' );
-				Database.state = 5;
+				console.log( 'TSHSU - invalid state : ' + Database.state );
+				Database.state = -1;
 				
 				return false;
 			}
@@ -309,27 +379,28 @@ var Logic = {
 	},
 	updateState : function(){
 		switch( tagpro.state ){
+			// game starting
 			case 3 : {
+				if( Database.state == 3 ) break;
+				
 				Database.state = 3;
 				Database.preGame = true;
 				break;
 			}
-			case 1 : {
+			// game in progress
+			case 1: case 5:{
 				if( Database.state == 4 ) break;
 				
-				Logic.getEndTime();
-				
-				if( Database.endTime ){
-					// activate all non-ready timers
-					Logic.gameStartActivation();
-					
-					Database.state = 4;
-				}
-				
+				Database.state = 4;
+				Logic.onGameStart();
 				break;
 			}
+			// game ended
 			case 2 : {
+				if( Database.state == 5 ) break;
+				
 				Database.state = 5;
+				Database.endGame = true;
 				break;
 			}
 			default: {
@@ -337,22 +408,38 @@ var Logic = {
 			}
 		}
 	},
+	
+	
+	
 	getEndTime : function(){
 		if( !tagpro.gameEndsAt ) return;
 		
-		// game ends more than 3 seconds from now
-		// maybe gameEndsAt has not updated
-		if( tagpro.gameEndsAt - Date.now() > 3000 ){
-			Database.endTime = tagpro.gameEndsAt;
+		if( Database.state != 4 ) return;
+		
+		if( Database.endTime ) return;
+		
+		// gameEndsAt is too soon , maybe it hasn't updated yet
+		if( tagpro.state === 1 ){
+			// more than 3 sec from now
+			if( tagpro.gameEndsAt - Date.now() > 3000 ){
+				Database.endTime = tagpro.gameEndsAt;
+			}
+		}else{
+			// more than 3 sec ago
+			if( tagpro.gameEndsAt - Date.now() < -3000 ){
+				Database.endTime = tagpro.gameEndsAt;
+			}
 		}
+		
+		if( Database.endTime ) console.log( 'TSHSU - syncronized with game clock' );
 	},
-	gameStartActivation : function(){
+	onGameStart : function(){
 		var i, count;
 		
 		i = 0; count = Database.tiles.length;
 		
 		// activate all non-ready timers
-		while(i < count){
+		while( i < count ){
 			if( !Database.tiles[i].ready ){
 				Logic.startPOI( Database.tiles[i] , true );
 				Database.tiles[i].timeStamp = Date.now();
@@ -360,7 +447,9 @@ var Logic = {
 				
 				// was in pregame and is pup
 				if( Database.preGame && Database.tiles[i].pupId > -1 ){
-					Database.global.push( [ Date.now() , 60000 , [Database.tiles[i].pupId] , false ] );
+					Database.global.push(
+						[ Date.now() , Database.timeTable.pup , [Database.tiles[i].pupId] , false ]
+					);
 				}
 			}
 			
@@ -387,8 +476,10 @@ var Logic = {
 				tagpro.renderer.layers.ui.addChild( tagpro.renderer.layers.ui.TSHSU_floaters );
 			}
 			if( !Renderer.isReady ){
-				if( Renderer.timerLayer && Renderer.floaterLayer ) Renderer.isReady = true;
-				console.log( 'TSHSU - renderer ready');
+				if( Renderer.timerLayer && Renderer.floaterLayer ){
+					Renderer.isReady = true;
+					console.log( 'TSHSU - renderer ready');
+				}
 			}
 		}
 	},
@@ -396,6 +487,8 @@ var Logic = {
 	
 	
 	handleQueuedSocketMessages : function(){
+		if( Database.endGame ) return;
+		
 		while( Database.socketQueue.length ){
 			// process front of queue
 			Logic.handleSocketMessage( Database.socketQueue[0] );
@@ -414,26 +507,24 @@ var Logic = {
 				Logic.handleSpawn( data );
 				return;
 			}
-			case 'end' : {
-				Logic.handleEnd( data );
-				return;
-			}
 			case 'p' : {
 				Logic.handleP( data );
+				return;
+			}
+			case 'end' : {
+				Logic.handleEnd( data );
 				return;
 			}
 			default : return;
 		}
 	},
 	handleMapUpdate : function(data){
-		var i, c, x, y, warn;
+		var i, count, x, y, value, warn;
 		
-		i = 0; c = data.data.length;
-		
-		p = data.pos; t = data.time;
+		i = 0; count = data.data.length;
 		
 		// loop through all tiles that are updating
-		while(i < c){
+		while( i < count ){
 			x = parseInt( data.data[i].x );
 			y = parseInt( data.data[i].y );
 			
@@ -442,14 +533,14 @@ var Logic = {
 				i++; continue;
 			}
 			
-			v = parseFloat( data.data[i].v );
+			value = parseFloat( data.data[i].v );
 			
-			warn = Helper.isWarningMapUpdate( v );
+			warn = Helper.isWarningMapUpdate( value );
 			
 			// - check if valid value
-			if( Helper.isStandardMapUpdate( v ) || warn ){
+			if( Helper.isStandardMapUpdate( value ) || warn ){
 				// update POI values
-				Logic.mapUpdatePOI( x , y , { v : v , p : data.pos , t : data.time } , warn );
+				Logic.mapUpdatePOI( x , y , { v : value , p : data.pos , t : data.time } , warn );
 			}
 			
 			i++;
@@ -458,9 +549,6 @@ var Logic = {
 	handleSpawn : function(data){
 		if( Database.state != 4 ) return;
 		Database.createTempEntry( data.data , data );
-	},
-	handleEnd : function(data){
-		Database.state = 5;
 	},
 	handleP : function(data){
 		var i, count;
@@ -472,6 +560,10 @@ var Logic = {
 			
 			i++;
 		}
+	},
+	handleEnd : function(data){
+		Database.state = 5;
+		Database.endGame = true;
 	},
 	
 	mapUpdatePOI : function(x, y, data, warn){
@@ -503,7 +595,8 @@ var Logic = {
 				
 				// is live update
 				if( Helper.wasLiveUpdate(x, y, data.p) && POI.timeMax ){
-					POI.timeStamp = ( data.t + Math.min( 3000 , POI.timeMax ) - POI.timeMax );
+					POI.timeStamp = data.t - POI.timeMax;
+					POI.timeStamp += Math.min( Database.timeTable.warn , POI.timeMax );
 					POI.timeAtText = false;
 					POI.known = true;
 				}
@@ -519,7 +612,13 @@ var Logic = {
 				POI.prev.k = POI.curr.k;
 				
 				// apply update to curr values
-				POI.curr.ts = POI.timeMax ? ( data.t + Math.min( 3000 , POI.timeMax ) - POI.timeMax ) : data.t;
+				if( POI.timeMax ){
+					POI.curr.ts = data.t - POI.timeMax;
+					POI.curr.ts += Math.min( Database.timeTable.warn , POI.timeMax );
+				}else{
+					POI.curr.ts = data.t;
+				}
+				
 				POI.curr.v = Helper.standardizeWarning( data.v );
 				POI.curr.k = Helper.wasLiveUpdate(x, y, data.p);
 			}
@@ -535,10 +634,20 @@ var Logic = {
 	
 	
 	updatePlayerPosition : function(){
-		var player = tagpro.players[ tagpro.playerId ];
+		var player;
 		
-		Database.position.x = player.x / 40;
-		Database.position.y = player.y / 40;
+		if( typeof tagpro.players[ tagpro.playerId ].x != 'undefined' ){
+			Database.validPlayer = true;
+			
+			player = tagpro.players[ tagpro.playerId ];
+			
+			Database.position.x = player.x / 40;
+			Database.position.y = player.y / 40;
+		} else {
+			Database.validPlayer = false;
+			
+			if( !tagpro.spectator ) console.log( 'TSHSU - cannot read player data' );
+		}
 	},
 	
 	
@@ -557,13 +666,15 @@ var Logic = {
 	updatePOI : function(POI){
 		// update POI state
 		Logic.statePOI( POI );
-		// update POI graphics
-		Logic.graphicsPOI( POI );
 		// update POI tracking
 		Logic.trackingPOI( POI );
+		// update POI graphics
+		Logic.graphicsPOI( POI );
 	},
 	
 	statePOI : function(POI){
+		if( Database.endGame ) return;
+		
 		// recent update
 		if( POI.updateNeeded ){
 			POI.updateNeeded = false;
@@ -596,6 +707,20 @@ var Logic = {
 		// set if timer should be displayed
 		POI.active = POI.timeLeft > 0;
 	},
+	trackingPOI : function(POI){
+		var isLive = Helper.tileLiveForPlayer( POI.x , POI.y );
+		
+		if( Database.endGame ) return;
+		
+		// track live state
+		Logic.liveStatePOI( POI , isLive );
+		
+		// analyze POI timeMax
+		Logic.analyzeTimeMax( POI );
+		
+		// fix POI state
+		Logic.fixStatePOI( POI );
+	},
 	graphicsPOI : function(POI){
 		// create sprites
 		Logic.spritePOI( POI );
@@ -603,53 +728,50 @@ var Logic = {
 		// set visible
 		Logic.setVisibility( POI );
 		
-		// stop if not active
-		if( !POI.active ){
-			if( !POI.debug.timeStamp ) return;
-		}
+		// stop if no graphics
+		if( !Logic.continueGraphics(POI) ) return;
 		
 		// update graphics
 		Renderer.updateDebug( POI );
-		
 		Renderer.updateText( POI );
 		Renderer.updateCircle( POI );
 		Renderer.updateFloater( POI );
 	},
-	trackingPOI : function(POI){
-		var isLive = Helper.tileLiveForPlayer( POI.x , POI.y );
-		
-		// track live state
-		Logic.liveStatePOI( POI , isLive );
-		
-		// get POI timeMax
-		Logic.getTimeMax( POI );
-		
-		// fix POI state
-		if( Database.state == 4 ) Logic.fixStatePOI( POI );
-	},
 	
 	timeLeftPOI : function(POI){
-		POI.timeLeft = POI.timeStamp ? Math.max( 0 , POI.timeMax - Helper.getTimeSince( POI.timeStamp ) ) : 0;
-		POI.timeLeftText = Helper.getTimeLeftText( POI.timeLeft );
-		
-		if( POI.debug.timeStamp ){
-			POI.debug.timeLeft = POI.debug.timeStamp ? Math.max( 0 , POI.debug.timeMax - Helper.getTimeSince( POI.debug.timeStamp ) ) : 0;
+		if( POI.timeStamp ){
+			POI.timeLeft = Math.max( 0 , POI.timeMax - Helper.getTimeSince( POI.timeStamp ) );
+		}else{
+			POI.timeLeft = 0;
 		}
+		POI.timeLeftText = Helper.getTimeLeftText( POI.timeLeft );
 	},
 	timeOutPOI : function(POI){
 		if( POI.timeStamp && POI.timeLeft === 0 ){
 			Logic.resetPOI( POI );
 		}
-		
-		if( POI.debug.timeStamp && POI.debug.timeLeft === 0 ){
-			POI.debug.timeStamp = false;
-		}
 	},
 	timeAtPOI : function(POI){
 		var timeAt;
 		
+		if( !Database.endTime && !POI.timeAtText ){
+			POI.timeAtText = '??';
+			return;
+		}
+		
+		if( Database.endTime && POI.timeAtText == '??' ){
+			POI.timeAtText = false;
+		}
+		
 		if( !POI.timeAtText && POI.timeStamp ){
-			timeAt = Math.floor( ( ( Database.endTime - POI.timeStamp - POI.timeMax + 60000 ) % 60000 ) / 1000 );
+			timeAt = ( ( Database.endTime - POI.timeStamp - POI.timeMax ) % 60000 ) / 1000;
+			
+			if( timeAt < 0 ){
+				timeAt = Math.ceil( timeAt );
+			}else{
+				timeAt = Math.floor( timeAt );
+			}
+			
 			POI.timeAtText = Helper.getTimeAtText( timeAt );
 		}
 	},
@@ -687,106 +809,85 @@ var Logic = {
 	},
 	// set POI and floater visibility
 	setVisibility : function(POI){
+		var sv = false, fv = false;
+		
+		// default values
 		if( !POI.active ){
-			// hide inactive POI
-			if( POI.sprite.visible ) POI.sprite.visible = false;
-			if( POI.floater && POI.floater.visible ) POI.floater.visible = false;
+			sv = false; fv = false;
 		}else{
 			if( Helper.tileOnScreen( POI.x , POI.y , !!POI.floater ) ){
-				// tile is on screen
-				if( !POI.sprite.visible ) POI.sprite.visible = true;
-				if( POI.floater && POI.floater.visible ) POI.floater.visible = false;
+				sv = true; fv = false;
 			}else{
-				// tile not on screen
-				if( POI.sprite.visible ) POI.sprite.visible = false;
-				if( POI.floater && !POI.floater.visible ) POI.floater.visible = true;
+				sv = false; fv = true;
 			}
 		}
 		
-		if( POI.debug.timeStamp ){
-			if( !POI.sprite.visible ) POI.sprite.visible = true;
-		}
+		// override default values
+		if( POI.debugBorder ) sv = true;
+		if( !Config.showFloaters ) fv = false;
 		
-		// config disables floaters
-		if( POI.floater && !Config.showFloaters ) POI.floater.visible = false;
+		// set visibility values
+		if( POI.sprite.visible != sv ) POI.sprite.visible = sv;
+		if( POI.floater && ( POI.floater.visible != fv ) ) POI.floater.visible = fv;
+	},
+	continueGraphics : function(POI){
+		return POI.active || POI.debugBorder;
 	},
 	
 	liveStatePOI : function(POI, isLive){
 		Helper.setValue( POI , 'live' , isLive , function(){
-			// POI just became live
+			// POI just loaded
 			if( POI.live ){
-				POI.changedSinceLive = false;
 				POI.liveSince = Date.now();
-				POI.wasReadyOnLoad = Helper.isValueReady( POI.value );
 				
 				// remove ready pup from globals
 				if( POI.pupId > -1 && POI.ready ) Logic.removeKnownFromGlobal( POI.pupId , true );
 			}
-			// POI just unloaded
-			else{
-				POI.changedSinceLive = false;
-			}
 		});
-		
-		if( POI.live ){
-			// POI has changed state while loaded
-			if( POI.ready != POI.wasReadyOnLoad && !POI.changedSinceLive ){
-				POI.changedSinceLive = true;
-			}
-			
-			// set last seen state
-			Helper.setValue( POI , 'liveReady' , POI.ready , function(){
-				if( POI.ready ){
-					POI.switchedReady = Date.now();
-				}else{
-					POI.switchedUnready = Date.now();
-				}
-			});
-		}else{
-			if( POI.liveReady != -1 ){
-				POI.liveReady = -1;
-				POI.switchedReady = false;
-				POI.switchedUneady = false;
-			}
-		}
 	},
-	getTimeMax : function(POI){
-		if( POI.timeMax ) return;
+	analyzeTimeMax : function(POI){
+		if( POI.timeMax ){
+			if( POI.analysis !== 0 ){
+				POI.analysis = 0;
+			}
+			
+			return;
+		}
 		
-		// is live - track progress
+		// is live - track analysis
 		if( POI.live ){
-			// progress if ready
-			if( POI.progress === 0 ){
-				if( POI.ready ){
-					POI.progress = 1;
-				}
+			// analysis if ready
+			if( POI.analysis === 0 ){
+				if( POI.ready ) POI.analysis = 1;
 			}
 			
-			// progress if poi was used
-			else if( POI.progress === 1 ){
+			// analysis if poi was used
+			else if( POI.analysis === 1 ){
 				if( !POI.ready ){
-					POI.progress = 2;
+					POI.analysis = 2;
 				}
 			}
 			
-			// progress if poi is ready
-			else if( POI.progress == 2 ){
+			// analysis if poi is ready
+			else if( POI.analysis == 2 ){
 				if( POI.ready ){
-					POI.progress = 0;
+					POI.analysis = 0;
 					
 					POI.timeMax = POI.curr.ts - POI.prev.ts;
 				}
 			}
 		}
 		
-		// is not live - reset progress
+		// is not live - reset analysis
 		else{
-			if( POI.progress !== 0 ){
-				POI.progress = 0;
+			if( POI.analysis !== 0 ){
+				POI.analysis = 0;
 			}
 		}
 	},
 	fixStatePOI : function(POI){
+		if( Database.state != 4 ) return;
+		
 		if( !POI.timeMax || !POI.live ) return;
 		
 		if( POI.ready ){
@@ -800,7 +901,8 @@ var Logic = {
 				Logic.startPOI( POI , false );
 				
 				// set timestamp
-				// sometimes triggers on frame where timer expires but tile hasnt spawned yet
+				// sometimes triggers on frame where timer expires but tile hasn't spawned yet
+				// above code block should fix it soon
 				
 				// set to livesince
 				if( Helper.getTimeSince( POI.liveSince ) < POI.timeMax ){
@@ -812,25 +914,26 @@ var Logic = {
 			}
 		}
 		
-		// is warning - set to max 3 sec
-		if( POI.inWarnState && POI.timeLeft > 3000 ){
-			//POI.debug.timeStamp = Date.now();
-			POI.timeStamp = Date.now() + Math.min( 3000 , POI.timeMax ) - POI.timeMax;
+		// is warning - set to max warning duration
+		if( POI.inWarnState && POI.timeLeft > Database.timeTable.warn ){
+			POI.timeStamp = Date.now() - POI.timeMax;
+			POI.timeStamp += Math.min( Database.timeTable.warn , POI.timeMax );
 		}
 	},
 	
 	// truncate pupTiles timestamp
 	globalCapPupTiles : function(){
-		var validGlobals = 0, invalidCount = 0, i, count, POI;
+		var validGlobals = 0, invalidCount = 0, i, count;
 		
 		// no globals
 		if( Database.global.length === 0 ) return;
 		
-		// more than 1 pup
+		// 0 or 1 pup on map
 		if( Database.pupCount <= 1 ) return;
 		
 		// last global is too recent
-		if( Database.global[ Database.global.length - 1 ][1] > 59000 ) return;
+		i = Database.global[ Database.global.length - 1 ][1];
+		if( i > ( Database.timeTable.pup - 1000 ) ) return;
 		
 		// count valid globals
 		i = 0; count = Database.global.length;
@@ -845,7 +948,7 @@ var Logic = {
 		// invalid global detected - return
 		if( invalidCount > 0 ) return;
 		
-		// liveready + valid = pupcount
+		// live and ready + valid = pupcount
 		if( Logic.countReadyLivePupTiles() + validGlobals == Database.pupCount ){
 			// cap pupTiles unknown to last global
 			Logic.autoSetUnknownTimePupTiles();
@@ -957,6 +1060,8 @@ var Logic = {
 	},
 	
 	stateTemp : function(temp){
+		if( Database.endGame ) return;
+		
 		temp.timeLeft = Math.max( 0 , temp.timeMax - Helper.getTimeSince( temp.timeStamp ) );
 		temp.text = Helper.getTimeLeftText( temp.timeLeft );
 	},
@@ -970,8 +1075,10 @@ var Logic = {
 	handlePlayerData : function(){
 		var id;
 		
+		if( Database.endGame ) return;
+		
 		// loop through all players
-		for(id in tagpro.players){
+		for( id in tagpro.players ){
 			// create player data
 			if( !Database.player[id] ){
 				Database.createPlayerData( id );
@@ -990,6 +1097,8 @@ var Logic = {
 	
 	
 	processGlobalQueue : function(){
+		if( Database.endGame ) return;
+		
 		while( Database.globalQueue.length ){
 			// process front of queue
 			Logic.updatePlayerPowerupState( Database.globalQueue[0] );
@@ -1010,12 +1119,12 @@ var Logic = {
 		var player = Database.player[id], p;
 		
 		// create timer for each increment using current timestamp
-		while(player.pups < count){
+		while( player.pups < count ){
 			if( player.ready ){
 				p = Logic.getPossibleTiles(ts);
 				
-				player.timers.push( [ ts , 20000 ] );
-				Database.global.push( [ ts , 60000 , p , id ] );
+				player.timers.push( [ ts , Database.timeTable.pupDur ] );
+				Database.global.push( [ ts , Database.timeTable.pup , p , id ] );
 				
 				if( p.length === 1 ) Logic.removeKnownFromGlobal( p[0] );
 				
@@ -1026,17 +1135,20 @@ var Logic = {
 		}
 	},
 	getPossibleTiles : function(ts){
-		var tile, i, output = [], recent = [];
+		var POI, i, output = [], recent = [];
+		
+		if( !Database.globalTracking ) return output;
 		
 		for(i = 0; i < Database.pupCount; i++){
-			tile = Database.pupTiles[i];
+			POI = Database.pupTiles[i];
 			
 			// check if known and grabbed recently
-			//if( tile.timeLeft > 59900 && tile.known ) return [ tile.pupId ];
-			if( tile.known && ts - tile.timeStamp <= 75 && ts - tile.timeStamp >= -25 ) recent.push( tile.pupId );
+			if( POI.known && Math.abs( ts - POI.timeStamp ) < 100 ){
+				recent.push( POI.pupId );
+			}
 			
 			// get unknown and offscreen pups
-			if( !tile.live && !tile.known ) output.push( tile.pupId );
+			if( !POI.live && !POI.known ) output.push( POI.pupId );
 		}
 		
 		if( recent.length ) return recent;
@@ -1045,6 +1157,8 @@ var Logic = {
 	removeKnownFromGlobal : function(n, kill){
 		var i, timer;
 		
+		if( !Database.globalTracking ) return;
+		
 		if( typeof kill == 'undefined' ) kill = false;
 		
 		// remove known pup id from all global timers
@@ -1052,7 +1166,7 @@ var Logic = {
 			timer = Database.global[i];
 			
 			// timer has multiple possible tiles or guarantee remove and not recent
-			if( timer[2].length > 1 || ( kill && timer[1] < 59500 ) ){
+			if( timer[2].length > 1 || ( kill && timer[1] < ( Database.timeTable.pup - 500 ) ) ){
 				// timer has known in possible tiles
 				if( timer[2].indexOf(n) != -1 ){
 					// remove known from possible tiles
@@ -1067,6 +1181,8 @@ var Logic = {
 		Database.globalCounts[0] = 0;
 		Database.globalCounts[1] = 0;
 		
+		if( !Database.globalTracking ) return;
+		
 		for(i = 0; i < Database.global.length; i++){
 			if( Database.global[i][2].length > 0 ){
 				Database.globalCounts[0]++;
@@ -1080,6 +1196,8 @@ var Logic = {
 	
 	updateAllGlobal : function(){
 		var i;
+		
+		if( Database.endGame ) return;
 		
 		for(i = 0; i < Database.global.length; i++){
 			if( !Database.global.length ) break;
@@ -1098,11 +1216,14 @@ var Logic = {
 	removeGlobal : function(index){
 		var glo = Database.global[ index ];
 		
-		if( glo[1] > 100 ) return false;
+		if( glo[1] > 100 && Database.globalTracking ) return false;
 		
-		// 1 possible , set offscreen poi unknown
+		// sets known off-screen pup timer to unknown before it expires
+		// don't remember why i do this - nice documentation past me
 		if( glo[2].length === 1 ){
-			if( !Database.pupTiles[ glo[2][0] ].live ) Database.pupTiles[ glo[2][0] ].known = false;
+			if( !Database.pupTiles[ glo[2][0] ].live ){
+				Database.pupTiles[ glo[2][0] ].known = false;
+			}
 		}
 		
 		Database.global.splice( index , 1 );
@@ -1113,6 +1234,12 @@ var Logic = {
 	},
 	updateStateGlobal : function(glo){
 		var tile;
+		
+		if( !Database.globalTracking ){
+			glo[1] = 0;
+			
+			return;
+		}
 		
 		// if 1 possible
 		if( glo[2].length === 1 ){
@@ -1127,18 +1254,21 @@ var Logic = {
 		}
 		
 		// set time left
-		glo[1] = Math.max( 0 , 59900 - Helper.getTimeSince( glo[0] ) );
+		// not sure why use time offset
+		glo[1] = Math.max( 0 , ( Database.timeTable.pup - 100 ) - Helper.getTimeSince( glo[0] ) );
 	},
 	updateGraphicsGlobal : function(){
-		var GL;
+		var GL, v;
 		
 		Logic.handleGlobalListSprites();
 		
 		GL = Renderer.floaterLayer.globalList;
 		
 		// set visibility
-		Helper.setValue( GL , 'V_visible' , Config.showGlobal , function(){
-			GL.visible = Config.showGlobal;
+		v = Config.showGlobal && Database.globalTracking;
+		
+		Helper.setValue( GL , 'V_visible' , v , function(){
+			GL.visible = v;
 		});
 		
 		if( !GL.visible ) return;
@@ -1202,8 +1332,10 @@ var Logic = {
 	updateAllPlayers : function(){
 		var id;
 		
+		if( Database.endGame ) return;
+		
 		// loop through all players
-		for(id in tagpro.players){
+		for( id in tagpro.players ){
 			Logic.updatePlayer( tagpro.players[id] );
 		}
 	},
@@ -1252,8 +1384,8 @@ var Logic = {
 		var temp = Database.player[id].timers[index],
 			player = tagpro.players[id];
 		
-		// timer is 0
-		if( temp[1] === 0 ){
+		// timer is 0 or disabled
+		if( temp[1] === 0 || !Database.playerTracking ){
 			Database.player[id].timers.splice( index , 1 );
 			return true;
 		}
@@ -1268,7 +1400,13 @@ var Logic = {
 	},
 	
 	updatePlayerTimer : function(timer){
-		timer[1] = Math.max( 0 , 20000 - Helper.getTimeSince( timer[0] ) );
+		if( !Database.playerTracking ){
+			timer[1] = 0;
+			
+			return;
+		}
+		
+		timer[1] = Math.max( 0 , Database.timeTable.pupDur - Helper.getTimeSince( timer[0] ) );
 	},
 	
 	handlePlayerSprites : function(player){
@@ -1316,11 +1454,17 @@ var Database = {
 	// legacy renderer
 	legacyRender : false,
 	
+	// mapdata
+	mapdata : MapData,
+	
 	// gamestate   0-init, 1-map, 2-ticking, 3-pregame, 4-ingame, 5-postgame
 	state : 0,
 	
 	// joined before game start
 	preGame : false,
+	
+	// game has ended
+	endGame : false,
 	
 	// countdown to
 	endTime : 0,
@@ -1352,8 +1496,17 @@ var Database = {
 	// count global poss and nill
 	globalCounts : [ 0 , 0 ],
 	
+	// whether global tracking is enabled
+	globalTracking : true,
+	
 	// player pup data
 	player : {},
+	
+	// whether player tracking is enabled
+	playerTracking : true,
+	
+	// player is valid - id points to existing player object
+	validPlayer : false,
 	
 	// player position
 	position : {x: 0, y: 0},
@@ -1365,6 +1518,9 @@ var Database = {
 		pup : 60000,
 		bomb : 30000,
 		boost : 10000,
+		
+		warn : 3000,
+		pupDur : 20000,
 	},
 	
 	
@@ -1379,9 +1535,11 @@ var Database = {
 		boost : 0xffff00,
 		boostred : 0xff0000,
 		boostblue : 0x0000ff,
+		portal : 0x333300,
+		portalred : 0x330000,
+		portalblue : 0x000033,
 		powerup : 0x00ff00,
-		bomb : 0x3f3f3f,
-		portal : 0x7f00ff,
+		bomb : 0x333333,
 		
 		// - warning border
 		warnborder : 0x333333,
@@ -1411,9 +1569,8 @@ var Database = {
 			ready: Helper.isValueReady(data), active: false,
 			
 			// tracking
-			live: false, liveSince: false, wasReadyOnLoad: false, changedSinceLive: false,
-			known: false, progress: 0, priority: 0, 
-			liveReady: -1, switchedReady: false, switchedUnready: false,
+			known: false, live: false, liveSince: false,
+			analysis: 0,
 			
 			// warning
 			lastWarnAt: false, inWarnState: false,
@@ -1423,9 +1580,7 @@ var Database = {
 			prev : { ts: 0, v: 0, k: false },
 			
 			// debug
-			debug : {
-				timeStamp: false, timeMax: 5000, timeLeft: 0,
-			},
+			debugBorder: false,
 		};
 		
 		// add POI to database
@@ -1484,7 +1639,7 @@ var Renderer = {
 	
 	
 	
-	// - main sprite types
+	// - complex sprite types
 	timerSprite : function(POI){
 		var base = Helper.getPixiContainer();
 		base.position.x = POI.x * 40; base.position.y = POI.y * 40;
@@ -1508,7 +1663,7 @@ var Renderer = {
 	floaterSprite : function(){
 		var base = Helper.getPixiContainer();
 		
-		base.V_scale = 1;
+		base.V_scale = 40;
 		base.V_visible = true;
 		
 		// large text
@@ -1559,7 +1714,7 @@ var Renderer = {
 	
 	
 	
-	// - subsprites
+	// - simple sprite types
 	slotSprite : function(){
 		var base = Helper.getPixiContainer();
 		
@@ -1574,7 +1729,8 @@ var Renderer = {
 		base.alpha = 0.75;
 		
 		base.V_radius = 0;
-		base.V_state = true;
+		base.V_border = false;
+		base.V_state = 'none';
 		
 		return base;
 	},
@@ -1593,9 +1749,15 @@ var Renderer = {
 		var base;
 		
 		if( Database.legacyRender ){
-			base = new PIXI.Text('',{font: 'bold 16pt Arial', fill: 'black', stroke: 'white', strokeThickness: 5});
+			base = new PIXI.Text('',{
+				font: 'bold 16pt Arial',
+				fill: 'black', stroke: 'white', strokeThickness: 5
+			});
 		}else{
-			base = new PIXI.Text('',{fontFamily: 'Arial', fontSize: '16pt', fontWeight: 'bold', fill: 'black', stroke: 'white', strokeThickness: 5});
+			base = new PIXI.Text('',{
+				fontFamily: 'Arial', fontSize: '16pt', fontWeight: 'bold',
+				fill: 'black', stroke: 'white', strokeThickness: 5
+			});
 		}
 		
 		base.x = 20; base.y = 20;
@@ -1608,6 +1770,7 @@ var Renderer = {
 		
 		base.alpha = 0.75;
 		
+		// not used on floaters
 		if( val ){
 			base.V_text = '';
 			base.V_color = 'black';
@@ -1619,9 +1782,15 @@ var Renderer = {
 		var base;
 		
 		if( Database.legacyRender ){
-			base = new PIXI.Text('',{font: 'bold 12pt Arial', fill: '#ffff66', stroke: 'black', strokeThickness: 3});
+			base = new PIXI.Text('',{
+				font: 'bold 12pt Arial',
+				fill: '#ffff66', stroke: 'black', strokeThickness: 3
+			});
 		}else{
-			base = new PIXI.Text('',{fontFamily: 'Arial', fontSize: '12pt', fontWeight: 'bold', fill: '#ffff66', stroke: 'black', strokeThickness: 3});
+			base = new PIXI.Text('',{
+				fontFamily: 'Arial', fontSize: '12pt', fontWeight: 'bold',
+				fill: '#ffff66', stroke: 'black', strokeThickness: 3
+			});
 		}
 		
 		base.x = 20; base.y = 40;
@@ -1634,6 +1803,7 @@ var Renderer = {
 		
 		base.alpha = 0.75;
 		
+		// not used on floaters
 		if( val ){
 			base.V_text = '';
 			base.V_yPos = 40;
@@ -1645,6 +1815,8 @@ var Renderer = {
 	
 	
 	updateDebug : function(POI){
+		if( !( POI.debugBorder || POI.sprite.border ) ) return;
+		
 		Renderer.setDebugBorder( POI );
 	},
 	
@@ -1669,6 +1841,7 @@ var Renderer = {
 		timeLeft = POI.timeLeftText;
 		timeAt = POI.timeAtText;
 		
+		if( POI.timeLeft > 60000 ) timeAt = '++';
 		if( !( POI.timeMax >= 20000 || Config.alwaysAt ) ) timeAt = '';
 		
 		// get text based on tileDisplay
@@ -1777,32 +1950,49 @@ var Renderer = {
 	setCircleGraphics : function(POI){
 		var circle = POI.sprite.circle;
 		
-		var state, radius;
+		var state = 'none', radius, max, buffer, redraw = false;
 		
-		if( !POI.timeMax ) return;
+		if( !POI.timeMax && circle.V_state == 'none' ) return;
+		
+		// forced warning
+		buffer = ( Config.forceWarningDisplay && POI.timeLeft <= Database.timeTable.warn );
 		
 		// get state
-		if( POI.inWarnState ){
-			if( Config.warningType === 0 ){
+		if( POI.inWarnState || buffer ){
+			if( Config.warningType == 1 ){
+				state = 'line';
+			}else if( Config.warningType == 2 ){
 				state = 'fill';
-			}else if( Config.warningType === 1 ){
-				state = 'stroke';
-			}else{
-				state = 'hidden';
+			}else if( Config.warningType == 3 ){
+				state = 'both';
 			}
 		}else{
-			if( POI.known ){
+			if( Config.defaultType == 1 ){
+				state = 'line';
+			}else if( Config.defaultType == 2 ){
 				state = 'fill';
-			}else{
-				state = 'hidden';
+			}else if( Config.defaultType == 3 ){
+				state = 'both';
 			}
 		}
 		
-		if( POI.timeLeft === 0 ) state = 'hidden';
+		// unknown or no fill
+		if( !POI.known || POI.fillColor == -1 ){
+			if( state == 'fill' ) state = 'none';
+			if( state == 'both' ) state = 'line';
+		}
+		
+		// expired or no time
+		if( POI.timeLeft === 0 || !POI.timeMax ) state = 'none';
+		
+		// unknown draw type
+		if( !( state == 'line' || state == 'fill' || state == 'both' ) ) state = 'none';
 		
 		// set state
-		Helper.setValue( POI.sprite.circle , 'V_state' , state , function(){
-			if( state == 'hidden' ){
+		Helper.setValue( circle , 'V_state' , state , function(){
+			redraw = true;
+			
+			if( state == 'none' ){
 				circle.visible = false;
 			}else{
 				circle.V_radius = 0;
@@ -1810,38 +2000,68 @@ var Renderer = {
 			}
 		});
 		
-		if( !( state == 'stroke' || state == 'fill' ) ) state = 'hidden';
-		
-		if( state == 'hidden' ) return;
+		if( state == 'none' ) return;
 		
 		// get radius
-		radius = POI.type == 'portal' ? 15 : 13;
-		if( state == 'fill' ) radius *= Math.min( 1 , 1 - ( POI.timeLeft - POI.timeMax * 0.1 ) / POI.timeMax );
-		radius = 2 + radius;
+		max = POI.type == 'portal' ? 17 : 15;
+		
+		if( state == 'fill' || state == 'both' ){
+			if( POI.timeMax > Database.timeTable.warn ){
+				buffer = POI.timeMax - POI.timeLeft;
+				buffer = buffer / ( POI.timeMax - Database.timeTable.warn );
+			} else {
+				buffer = 1;
+			}
+			
+			radius = 2 + ( ( max - 2 ) * Math.min( 1 , buffer ) );
+		}
 		
 		// redraw if radius difference is 0.25
-		Helper.setValueDelta( POI.sprite.circle , 'V_radius' , radius , 0.25 , function(){
-			if( state == 'fill' ){
-				circle.clear().beginFill( POI.fillColor ).drawCircle( 0 , 0 , radius ).endFill();
-			}else{
-				circle.clear().lineStyle( 2 , Database.colorTable.warnborder ).drawCircle( 0 , 0 , radius - 1 );
-			}
+		Helper.setValueDelta( circle , 'V_radius' , radius , 0.25 , function(){
+			redraw = true;
 		});
+		
+		// redraw if border toggled
+		buffer = ( state == 'line' || state == 'both' );
+		
+		Helper.setValue( circle , 'V_border' , buffer , function(){
+			redraw = true;
+		});
+		
+		// redraw sprite
+		if( redraw ){
+			circle.clear();
+			
+			buffer = Database.colorTable.warnborder;
+			
+			if( state == 'fill' || state == 'both' ){
+				circle.beginFill( POI.fillColor ).drawCircle( 0 , 0 , radius ).endFill();
+			}
+			if( state == 'line' || state == 'both' ){
+				circle.lineStyle( 2 , buffer ).drawCircle( 0 , 0 , max - 1 );
+			}
+		}
 	},
 	
 	setFloaterScale : function(POI){
-		Helper.setValue( POI.floater , 'V_scale', 1 / tagpro.zoom , function(){
+		Helper.setValueDelta( POI.floater , 'V_scale', tagpro.zoom , 0.001 , function(){
 			POI.floater.scale.x = POI.floater.scale.y = 1 / tagpro.zoom;
 		});
 	},
 	setFloaterPosition : function(POI){
-		var player = Database.position;
+		var player = Database.position, TRC;
 		
-		POI.floater.position.x = Math.max( 0 , Math.min( tagpro.renderer.canvas.width - 40 * POI.floater.V_scale ,
-			( tagpro.renderer.canvas.width / 2 ) + ( ( POI.x * 40 - player.x * 40 - 20 ) / tagpro.zoom )
+		if( !Database.validPlayer ) return;
+		
+		TRC = tagpro.renderer.canvas;
+		
+		POI.floater.position.x = Math.max( 0 , Math.min(
+			TRC.width - 40 * ( 1 / POI.floater.V_scale ) ,
+			( TRC.width / 2 ) + ( ( POI.x * 40 - player.x * 40 - 20 ) / tagpro.zoom )
 		));
-		POI.floater.position.y = Math.max( 0 , Math.min( tagpro.renderer.canvas.height - 40 * POI.floater.V_scale ,
-			( tagpro.renderer.canvas.height / 2 ) + ( ( POI.y * 40 - player.y * 40 - 20 ) / tagpro.zoom )
+		POI.floater.position.y = Math.max( 0 , Math.min(
+			TRC.height - 40 * ( 1 / POI.floater.V_scale ) ,
+			( TRC.height / 2 ) + ( ( POI.y * 40 - player.y * 40 - 20 ) / tagpro.zoom )
 		));
 	},
 	
@@ -1851,13 +2071,13 @@ var Renderer = {
 		// create border sprite
 		if( !POI.sprite.border ){
 			POI.sprite.border = Renderer.borderSprite();
-			POI.sprite.addChild( POI.sprite.border );
+			POI.sprite.addChildAt( POI.sprite.border , 0 );
 		}
 		
 		border = POI.sprite.border;
 		
 		// get visibility
-		visible = !!(POI.debug.timeStamp);
+		visible = POI.debugBorder;
 		
 		// set visibility
 		Helper.setValue( POI.sprite.border , 'V_visible' , visible , function(){
@@ -1929,7 +2149,10 @@ var Renderer = {
 			if( i < poss.length ){
 				text = Helper.getTimeLeftText( poss[i][1] );
 				
-				if( poss[i][1] < 40000 || poss[i][3] === false || !tagpro.players[ poss[i][3] ] ){
+				if(
+					poss[i][1] < ( Database.timeTable.pup - Database.timeTable.pupDur ) ||
+					poss[i][3] === false || !tagpro.players[ poss[i][3] ]
+				){
 					color = '#ffffff';
 				}else{
 					if( tagpro.players[ poss[i][3] ].team === 1 ){
@@ -1970,7 +2193,10 @@ var Renderer = {
 			if( i < nill.length ){
 				text = Helper.getTimeLeftText( nill[i][1] );
 				
-				if( nill[i][1] < 40000 || nill[i][3] === false || !tagpro.players[ nill[i][3] ] ){
+				if(
+					nill[i][1] < ( Database.timeTable.pup - Database.timeTable.pupDur ) ||
+					nill[i][3] === false || !tagpro.players[ nill[i][3] ]
+				){
 					color = '#cccccc';
 				}else{
 					if( tagpro.players[ nill[i][3] ].team === 1 ){
@@ -2066,16 +2292,31 @@ tagpro.ready(function(){
 	// legacy renderer
 	if( !PIXI.Container ) Database.legacyRender = true;
 	
+	var mapName = false;
+	
 	// read map data
 	var getMapData = setInterval(function(){
 		
-		if( tagpro.map ){
-			Logic.readMapData( tagpro.map );
+		if( tagpro.map && mapName ){
+			Logic.parseMapData( tagpro.map , mapName );
 			console.log( 'TSHSU - map data loaded');
 			clearInterval( getMapData );
 		}
 		
 	}, 50);
+	
+	// get player position
+	var getPlayerPosition = function(){
+		var player, spectator;
+		
+		player = tagpro.players[ tagpro.playerId ];
+		
+		spectator = tagpro.spectator;
+		
+		if( typeof player == 'undefined' ) return { x : 0 , y : 0, s : spectator };
+		
+		return { x : player.x / 40 , y : player.y / 40 , s : spectator };
+	};
 	
 	
 	
@@ -2094,8 +2335,7 @@ tagpro.ready(function(){
 	socketListener('mapupdate', function(ts, data){
 		if(!(data instanceof Array)) data = [data];
 		
-		var pos = tagpro.players[ tagpro.playerId ];
-		pos = { x : pos.x / 40 , y : pos.y / 40 };
+		var pos = getPlayerPosition();
 		
 		Logic.readSocketMessage( { type : 'mapupdate', time : ts, pos : pos, data : data } );
 	});
@@ -2108,15 +2348,19 @@ tagpro.ready(function(){
         Logic.readSocketMessage( { type : 'spawn', time : ts, data : data } );
     });
 	
-	socketListener('end', function(ts, data){
-        Logic.readSocketMessage( { type : 'end', time : ts, data : data } );
-    });
-	
 	socketListener('p', function(ts, data){
 		if( !data.t ) data = { t: 0, u: data };
 		
 		Logic.readSocketMessage( { type : 'p', time : ts, data : data } );
 	});
+	
+	socketListener('end', function(ts, data){
+		Logic.readSocketMessage( { type : 'end', time : ts, data : data } );
+    });
+	
+	socketListener('map', function(ts, data){
+		mapName = data.info.name;
+    });
 	
 	
 	
@@ -2149,17 +2393,16 @@ tagpro.ready(function(){
 	};
 	
 	
+	
 	// debug
-	if( false ){
-	
-	tagpro.tilmer = {
-		config : Config,
-		helper : Helper,
-		logic : Logic,
-		database : Database,
-		renderer : Renderer
-	};
-	
+	if( Config.debugObject ){
+		tagpro.tilmer = {
+			config : Config,
+			helper : Helper,
+			logic : Logic,
+			database : Database,
+			renderer : Renderer
+		};
 	}
 	
 });
